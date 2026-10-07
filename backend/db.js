@@ -10,6 +10,12 @@ const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
 })
 
+/**
+ * Deliberate schema preparation. Creates and alters tables, indexes, and
+ * constraints. It does not create Development Organisation, does not import
+ * data, and does not rebuild historical metrics or bid experiments.
+ * Server startup must call assertSchemaReady() instead.
+ */
 async function initDb() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS imports (
@@ -33,9 +39,6 @@ async function initDb() {
     ALTER TABLE import_rows ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
     ALTER TABLE import_rows ADD COLUMN IF NOT EXISTS source_import_id INTEGER REFERENCES imports(id) ON DELETE SET NULL;
   `)
-
-  const { backfillRecordKeys } = require('./imports')
-  await backfillRecordKeys()
 
   const organisationColumn = await pool.query(
     `SELECT 1
@@ -168,28 +171,7 @@ async function initDb() {
   await migrateOrganisationOwnership()
   await migrateMultiTenantUniqueConstraints()
   await migrateKeywordBidHistory()
-  
-  // Backfill daily metrics AFTER all migrations complete
-  setImmediate(async () => {
-    try {
-      const { backfillDailyMetricsFromImportRows } = require('./imports')
-      await backfillDailyMetricsFromImportRows()
-    } catch (err) {
-      console.error('Backfill error:', err.message)
-      console.error('Error detail:', err.detail || 'No detail')
-      console.error('Error hint:', err.hint || 'No hint')
-      if (err.position) console.error('Error position:', err.position)
-    }
-
-    try {
-      const { backfillBidExperiments } = require('./bidExperiments')
-      await backfillBidExperiments()
-    } catch (err) {
-      console.error('Bid experiment backfill error:', err.message)
-      console.error('Error detail:', err.detail || 'No detail')
-      console.error('Error hint:', err.hint || 'No hint')
-    }
-  })
+  console.log('Schema preparation completed')
 }
 
 async function migrateBidExperiments() {
@@ -595,43 +577,35 @@ async function migrateMultiTenantFoundation() {
       ON organisation_users(organisation_id);
   `)
 
-  // Seed development organisation (idempotent)
-  const existing = await pool.query(
-    `SELECT id, organisation_name, created_at 
-     FROM organisations 
-     WHERE organisation_name = 'Development Organisation'`
-  )
-
-  if (existing.rows.length === 0) {
-    const result = await pool.query(
-      `INSERT INTO organisations (organisation_name, created_at)
-       VALUES ('Development Organisation', NOW())
-       RETURNING id, organisation_name, created_at`
-    )
-    console.log(`  ✓ Created development organisation (id=${result.rows[0].id})`)
-  } else {
-    console.log(`  ✓ Development organisation already exists (id=${existing.rows[0].id})`)
-  }
-
   console.log('Multi-tenant foundation migration completed')
+  console.log('Schema preparation does not create Development Organisation')
+}
+
+const OWNERSHIP_TABLES = [
+  'imports',
+  'import_rows',
+  'campaigns',
+  'daily_campaign_metrics',
+  'daily_keyword_metrics',
+  'annotations',
+  'performance_goals',
+  'bid_experiments',
+]
+
+async function nullOrganisationOwnershipCounts() {
+  const counts = {}
+  for (const table of OWNERSHIP_TABLES) {
+    const result = await pool.query(
+      `SELECT COUNT(*)::int AS count FROM ${table} WHERE organisation_id IS NULL`
+    )
+    counts[table] = result.rows[0].count
+  }
+  return counts
 }
 
 async function migrateOrganisationOwnership() {
   console.log('Migrating organisation ownership (P2)...')
 
-  // Step 1: Resolve Development Organisation
-  const devOrgResult = await pool.query(
-    `SELECT id FROM organisations WHERE organisation_name = 'Development Organisation'`
-  )
-
-  if (devOrgResult.rows.length === 0) {
-    throw new Error('Development Organisation not found. P1 migration must complete first.')
-  }
-
-  const devOrgId = devOrgResult.rows[0].id
-  console.log(`  ✓ Resolved Development Organisation (id=${devOrgId})`)
-
-  // Step 2: Add nullable organisation_id columns
   console.log('  Adding organisation_id columns...')
   
   await pool.query(`
@@ -682,94 +656,18 @@ async function migrateOrganisationOwnership() {
 
   console.log('  ✓ Organisation indexes created')
 
-  // Step 4: Backfill existing rows (idempotent)
-  console.log('  Backfilling organisation ownership...')
-  
-  const backfillResults = {}
-  
-  backfillResults.imports = await pool.query(
-    `UPDATE imports SET organisation_id = $1 WHERE organisation_id IS NULL`,
-    [devOrgId]
-  )
-  
-  // Backfill import_rows from parent import
-  backfillResults.import_rows = await pool.query(
-    `UPDATE import_rows ir 
-     SET organisation_id = i.organisation_id
-     FROM imports i
-     WHERE ir.import_id = i.id AND ir.organisation_id IS NULL`,
-    []
-  )
-  
-  backfillResults.campaigns = await pool.query(
-    `UPDATE campaigns SET organisation_id = $1 WHERE organisation_id IS NULL`,
-    [devOrgId]
-  )
-  
-  backfillResults.daily_campaign_metrics = await pool.query(
-    `UPDATE daily_campaign_metrics SET organisation_id = $1 WHERE organisation_id IS NULL`,
-    [devOrgId]
-  )
-  
-  backfillResults.daily_keyword_metrics = await pool.query(
-    `UPDATE daily_keyword_metrics SET organisation_id = $1 WHERE organisation_id IS NULL`,
-    [devOrgId]
-  )
-  
-  backfillResults.annotations = await pool.query(
-    `UPDATE annotations SET organisation_id = $1 WHERE organisation_id IS NULL`,
-    [devOrgId]
-  )
-  
-  backfillResults.performance_goals = await pool.query(
-    `UPDATE performance_goals SET organisation_id = $1 WHERE organisation_id IS NULL`,
-    [devOrgId]
-  )
-  
-  backfillResults.bid_experiments = await pool.query(
-    `UPDATE bid_experiments SET organisation_id = $1 WHERE organisation_id IS NULL`,
-    [devOrgId]
-  )
-
-  console.log('  ✓ Backfill complete:')
-  Object.entries(backfillResults).forEach(([table, result]) => {
-    console.log(`    - ${table}: ${result.rowCount} rows`)
-  })
-
-  // Step 5: Verify no NULL ownership
-  console.log('  Verifying ownership completeness...')
-  
-  const verifyQueries = [
-    'SELECT COUNT(*) as count FROM imports WHERE organisation_id IS NULL',
-    'SELECT COUNT(*) as count FROM import_rows WHERE organisation_id IS NULL',
-    'SELECT COUNT(*) as count FROM campaigns WHERE organisation_id IS NULL',
-    'SELECT COUNT(*) as count FROM daily_campaign_metrics WHERE organisation_id IS NULL',
-    'SELECT COUNT(*) as count FROM daily_keyword_metrics WHERE organisation_id IS NULL',
-    'SELECT COUNT(*) as count FROM annotations WHERE organisation_id IS NULL',
-    'SELECT COUNT(*) as count FROM performance_goals WHERE organisation_id IS NULL',
-    'SELECT COUNT(*) as count FROM bid_experiments WHERE organisation_id IS NULL'
-  ]
-
-  const tables = ['imports', 'import_rows', 'campaigns', 'daily_campaign_metrics', 
-                  'daily_keyword_metrics', 'annotations', 'performance_goals', 'bid_experiments']
-  
-  let nullCountFound = false
-  for (let i = 0; i < verifyQueries.length; i++) {
-    const result = await pool.query(verifyQueries[i])
-    const count = parseInt(result.rows[0].count)
-    if (count > 0) {
-      console.log(`  ⚠ WARNING: ${tables[i]} has ${count} rows with NULL organisation_id`)
-      nullCountFound = true
-    }
+  const nullCounts = await nullOrganisationOwnershipCounts()
+  const nullTables = Object.entries(nullCounts).filter(([, count]) => count > 0)
+  if (nullTables.length > 0) {
+    const summary = nullTables.map(([table, count]) => `${table}=${count}`).join(', ')
+    throw new Error(
+      `Rows are missing organisation_id (${summary}). ` +
+        'Schema preparation does not assign them to Development Organisation. ' +
+        'On a non-production database that already has that organisation, run npm run db:backfill:ownership, then npm run db:migrate again.'
+    )
   }
 
-  if (nullCountFound) {
-    console.log('  ⚠ NOT NULL constraints NOT applied due to incomplete backfill')
-    console.log('Organisation ownership migration completed with warnings')
-    return
-  }
-
-  console.log('  ✓ All rows have valid organisation ownership')
+  console.log('  ✓ No rows are missing organisation_id')
 
   // Step 6: Apply NOT NULL constraints
   console.log('  Applying NOT NULL constraints...')
@@ -998,4 +896,121 @@ async function migrateKeywordBidHistory() {
   console.log('Keyword bid history migration completed successfully')
 }
 
-module.exports = { pool, initDb }
+const REQUIRED_TABLES = [
+  'imports',
+  'import_rows',
+  'users',
+  'organisations',
+  'organisation_users',
+  'campaigns',
+  'annotations',
+  'performance_goals',
+  'daily_campaign_metrics',
+  'daily_keyword_metrics',
+  'bid_experiments',
+  'application_settings',
+  'keyword_bid_history',
+]
+
+async function assertSchemaReady() {
+  const result = await pool.query(
+    `SELECT c.relname
+     FROM pg_class c
+     JOIN pg_namespace n ON n.oid = c.relnamespace
+     WHERE n.nspname = 'public'
+       AND c.relkind = 'r'
+       AND c.relname = ANY($1::text[])`,
+    [REQUIRED_TABLES]
+  )
+  const present = new Set(result.rows.map((row) => row.relname))
+  const missing = REQUIRED_TABLES.filter((name) => !present.has(name))
+  if (missing.length > 0) {
+    const err = new Error(
+      `Database schema is not ready. Missing tables: ${missing.join(', ')}. Run npm run db:migrate before starting the server.`
+    )
+    err.code = 'SCHEMA_NOT_READY'
+    throw err
+  }
+  console.log('Database schema readiness check passed')
+}
+
+async function backfillOrganisationOwnership() {
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('Refusing organisation ownership backfill when NODE_ENV=production')
+  }
+
+  const found = await pool.query(
+    `SELECT id
+     FROM organisations
+     WHERE organisation_name = 'Development Organisation'
+     ORDER BY id`
+  )
+  if (found.rows.length !== 1) {
+    throw new Error(
+      'Development Organisation must already exist. This command does not create it. ' +
+        'In a non-production environment with DEVELOPMENT_ORGANISATION_BOOTSTRAP_CLERK_USER_ID set, run npm run db:bootstrap-dev first.'
+    )
+  }
+
+  const devOrgId = found.rows[0].id
+  const directTables = OWNERSHIP_TABLES.filter((table) => table !== 'import_rows')
+  for (const table of directTables) {
+    const result = await pool.query(
+      `UPDATE ${table} SET organisation_id = $1 WHERE organisation_id IS NULL`,
+      [devOrgId]
+    )
+    console.log(`  ${table}: ${result.rowCount} rows`)
+  }
+
+  const importRows = await pool.query(
+    `UPDATE import_rows ir
+     SET organisation_id = i.organisation_id
+     FROM imports i
+     WHERE ir.import_id = i.id
+       AND ir.organisation_id IS NULL`
+  )
+  console.log(`  import_rows: ${importRows.rowCount} rows`)
+}
+
+async function ensureDevelopmentOrganisation() {
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('Refusing to create Development Organisation when NODE_ENV=production')
+  }
+  const configured = process.env.DEVELOPMENT_ORGANISATION_BOOTSTRAP_CLERK_USER_ID
+  if (typeof configured !== 'string' || configured.trim().length === 0) {
+    throw new Error(
+      'DEVELOPMENT_ORGANISATION_BOOTSTRAP_CLERK_USER_ID must be set before creating Development Organisation'
+    )
+  }
+
+  const existing = await pool.query(
+    `SELECT id
+     FROM organisations
+     WHERE organisation_name = 'Development Organisation'
+     ORDER BY id`
+  )
+  if (existing.rows.length > 1) {
+    throw new Error('Development Organisation is ambiguous')
+  }
+  if (existing.rows.length === 1) {
+    console.log(`Development Organisation already exists (id=${existing.rows[0].id})`)
+    return existing.rows[0].id
+  }
+
+  const inserted = await pool.query(
+    `INSERT INTO organisations (organisation_name)
+     VALUES ('Development Organisation')
+     RETURNING id`
+  )
+  console.log(`Created Development Organisation (id=${inserted.rows[0].id})`)
+  return inserted.rows[0].id
+}
+
+module.exports = {
+  pool,
+  initDb,
+  prepareSchema: initDb,
+  assertSchemaReady,
+  backfillOrganisationOwnership,
+  ensureDevelopmentOrganisation,
+}

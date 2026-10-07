@@ -231,8 +231,7 @@ async function cleanupSyntheticUsers(devOrgId) {
 async function main() {
   console.log('\n=== P5B organisation resolution ===')
 
-  // The schema is already migrated. initDb() also schedules the import
-  // backfill in the background, which this test does not need.
+  // The schema is already migrated. Server startup no longer migrates or backfills.
   const devOrgs = await developmentOrganisations()
   assert.strictEqual(devOrgs.length, 1)
   const devOrgId = devOrgs[0].id
@@ -736,6 +735,20 @@ async function main() {
           authProviderUserId: 'user_first',
         },
         {}
+      ),
+      false
+    )
+    assert.strictEqual(
+      isDevelopmentBootstrapUser(
+        {
+          id: 1,
+          authProvider: 'clerk',
+          authProviderUserId: 'user_configured',
+        },
+        {
+          NODE_ENV: 'production',
+          [BOOTSTRAP_CLERK_USER_ID_ENV]: 'user_configured',
+        }
       ),
       false
     )

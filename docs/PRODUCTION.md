@@ -2885,9 +2885,81 @@ Clerk identity
 
 ---
 
+### Phase P6C.2: Production Database Foundation ✅ VERIFIED
+
+**Scope:** Create an empty production database and login role on the existing local PostgreSQL 16 cluster. Do not start the application, run `initDb()`, copy development data, or create Development Organisation.
+
+**Production database:** `seoanalyser_production`
+
+**Production role:** `seoanalyser_prod`
+
+**PostgreSQL:** 16.15, localhost only, port 5432
+
+**Connection URL:** `postgresql://seoanalyser_prod:***@localhost:5432/seoanalyser_production`
+
+The password is stored only in `/home/mohamed/.local/share/seoanalyser/production-db.password` (owner `mohamed`, mode `600`). It is not in Git and not in this document.
+
+The database was created from `template0`, owned by `seoanalyser_prod`, encoding UTF8. The role can log in. It is not a superuser and does not have `CREATEDB` or `CREATEROLE`. It owns schema `public` and has `USAGE` and `CREATE` there, so a later phase can create the application schema. `PUBLIC` has no grant on the production database or that schema.
+
+The production database has no application tables and no Development Organisation. The only extension is `plpgsql`.
+
+**NO DEVELOPMENT DATA COPIED**
+
+**NO APPLICATION SCHEMA RUN YET**
+
+**NO DEVELOPMENT ORGANISATION CREATED**
+
+**APPLICATION HAS NOT BEEN STARTED AGAINST PRODUCTION**
+
+Development database `seoanalyser` and role `myappuser` are unchanged. `PUBLIC` `CONNECT` on `seoanalyser` was not revoked. Development row counts match the pre-change baseline. `pg_dump` 16.15 is available. No backup job was added.
+
+---
+
+### Phase P6C.3: Production Application Preparation ✅ CODE PREPARATION
+
+**Scope:** Separate schema preparation, historical maintenance, and normal server startup. Do not write the application schema to `seoanalyser_production` until this refactor is reviewed.
+
+**Startup:** `npm start` checks that the required tables exist, then listens. It does not create or alter tables, backfill ownership or record keys, rebuild daily metrics, rebuild bid experiments, or create Development Organisation. If the schema is missing, the process exits with `SCHEMA_NOT_READY`. In production it binds `127.0.0.1`. Development still binds the existing listen address.
+
+**Schema command:** `npm run db:migrate` in `backend/`. It requires `DATABASE_URL` and fails if that variable is missing. It creates and upgrades tables, indexes, and constraints. It does not create Development Organisation and does not rebuild historical analytics.
+
+**Development Organisation:** Request-time bootstrap joins the existing Development Organisation only when `NODE_ENV` is not `production` and `DEVELOPMENT_ORGANISATION_BOOTSTRAP_CLERK_USER_ID` is set. `NODE_ENV=production` disables that path even if the variable is present, and logs a warning that does not include the value. `npm run db:bootstrap-dev` is the only command that creates the organisation, and it refuses to run in production.
+
+**Maintenance commands, run only when deliberately needed:**
+
+- `npm run db:backfill:ownership`
+- `npm run db:backfill:record-keys`
+- `npm run db:backfill:metrics`
+- `npm run db:backfill:bids`
+- `npm run db:backfill:bid-history`
+- `npm run db:backfill:bid-snapshot-dates`
+- `npm run db:backfill:keyword-bids`
+
+**Development workflow:** from `backend/`, run `npm run db:migrate` when the schema changes, then `npm start`. The existing development database already has Development Organisation. Do not point `DATABASE_URL` at `seoanalyser_production`.
+
+**Production environment names, values not stored in Git:** `NODE_ENV=production`, `PORT=3002`, `DATABASE_URL`, `CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY`, `FRONTEND_ORIGIN`, and the optional CSV limit variables. `DEVELOPMENT_ORGANISATION_BOOTSTRAP_CLERK_USER_ID` must be unset. Live Clerk keys and the production hostname are later phases. The redacted production URL is `postgresql://seoanalyser_prod:***@localhost:5432/seoanalyser_production`.
+
+**Release layout, not created yet because this change is uncommitted:**
+
+```
+/var/www/seoanalyser/releases/<commit>
+/var/www/seoanalyser/current
+/var/www/seoanalyser/shared
+```
+
+**Hold point:** do not run this until the refactor is approved. From the reviewed `backend/` directory, with the production password supplied outside Git and the bootstrap variable unset:
+
+```
+NODE_ENV=production DATABASE_URL=postgresql://seoanalyser_prod:***@localhost:5432/seoanalyser_production npm run db:migrate
+```
+
+The fresh-schema test used a disposable PostgreSQL cluster and then removed it. `seoanalyser_production` still has no application tables.
+
+---
+
 ## Summary
 
-**Current state:** Tenant foundation and backend scoping are complete (P1–P4.1). P5A authenticates a Clerk session into `req.user`. P5B resolves that user's organisation. P5C.1 is the shared authenticated tenant chain. P5C.2 puts Imports on that chain. P5D.1 adds frontend Clerk sign-in and the authenticated API client. P5C.3 puts Dashboard, Campaigns, Keywords, and core analytics on that chain. P5C.4 puts Goals, Annotations, and Bid Experiments on that chain. All Apple Ads production route groups now derive tenant context from the authenticated membership. There is no general Development Organisation fallback. The configured P5B bootstrap identity can still join the existing Development Organisation when that user has no membership. P6A.1 hides unexpected server errors, restricts CORS to the configured frontend origin, adds API security headers, removes `GET /api/auth/tenant-test`, and ignores secret env files. P6A.2 caps CSV file size, row count, and upload attempts. P6A.3 caps the analytics window at 90 days and validates dates, resource ids, annotation text, goal thresholds, experiment windows, and filter strings. P6A.4 audited dependencies, tenant queries, debug artefacts, secrets, startup work, and the production frontend build, and removed unused unscoped helpers. P6B lets any new Clerk user register and receive one owner organisation. None of these phases deploys the application.
+**Current state:** Tenant foundation and backend scoping are complete (P1–P4.1). P5A authenticates a Clerk session into `req.user`. P5B resolves that user's organisation. P5C.1 is the shared authenticated tenant chain. P5C.2 puts Imports on that chain. P5D.1 adds frontend Clerk sign-in and the authenticated API client. P5C.3 puts Dashboard, Campaigns, Keywords, and core analytics on that chain. P5C.4 puts Goals, Annotations, and Bid Experiments on that chain. All Apple Ads production route groups now derive tenant context from the authenticated membership. There is no general Development Organisation fallback. The configured P5B bootstrap identity can still join the existing Development Organisation when that user has no membership. P6A.1 hides unexpected server errors, restricts CORS to the configured frontend origin, adds API security headers, removes `GET /api/auth/tenant-test`, and ignores secret env files. P6A.2 caps CSV file size, row count, and upload attempts. P6A.3 caps the analytics window at 90 days and validates dates, resource ids, annotation text, goal thresholds, experiment windows, and filter strings. P6A.4 audited dependencies, tenant queries, debug artefacts, secrets, startup work, and the production frontend build, and removed unused unscoped helpers. P6B lets any new Clerk user register and receive one owner organisation. P6C.2 adds an empty production database, `seoanalyser_production`, and login role `seoanalyser_prod`, on localhost PostgreSQL only. P6C.3 separates schema preparation from normal startup so a production boot cannot migrate, backfill, or create Development Organisation. The production database has still not had the application schema applied. None of these phases deploys the application.
 
 **Completed phases:**
 - ✅ **P1:** Multi-tenant foundation tables (users, organisations, organisation_users)
@@ -2907,6 +2979,8 @@ Clerk identity
 - ✅ **P6A.3:** 90-day analytics window, calendar-date checks, positive resource ids, annotation and goal limits, and the existing 3/7/14/30 experiment windows. Invalid input is HTTP 400 before the analytics query.
 - ✅ **P6A.4:** Hardening close-out. Compatible dependency updates, removal of unused unscoped helpers, and a production-gate review. No application-level security or tenant-isolation blocker remains.
 - ✅ **P6B:** Self-service registration. A new Clerk user gets one local user, one organisation, and one owner membership. There is no email allowlist. PostgreSQL remains the tenancy source.
+- ✅ **P6C.2:** Empty production database `seoanalyser_production` and login role `seoanalyser_prod` on localhost PostgreSQL. No development data copied. No application schema. No Development Organisation. The application has not been started against production.
+- ✅ **P6C.3 code preparation:** Normal startup only checks schema readiness. `npm run db:migrate` is the deliberate schema command. Development Organisation bootstrap is disabled when `NODE_ENV=production`. The production database remains empty pending approval.
 
 **Storage safety:** ✅ Two organisations can store identical Apple Ads data independently
 
@@ -2922,7 +2996,7 @@ Clerk identity
 
 **Frontend isolation:** ✅ P5D.1 — Clerk sign-in gates the application shell. The shared API client sends the Clerk session token. Organisation ownership still comes only from the backend membership.
 
-**Required work:** P6C is the production host, Clerk production sign-up settings, and moving schema migrations and historical backfills off process startup. Organisation management and billing remain outstanding. Apple Ads route tenancy, CSV upload limits, analytics input limits, and self-service organisation provisioning are in place. P6B does not deploy the application.
+**Required work:** Approve and then run `npm run db:migrate` once against `seoanalyser_production`. After that come the production release checkout, the protected production environment file, the production host, and Clerk production sign-up settings. Organisation management and billing remain outstanding. Apple Ads route tenancy, CSV upload limits, analytics input limits, and self-service organisation provisioning are in place. P6C.3 does not deploy the application.
 
 **Migration approach:** Phased, sequential. P5D.1 frontend authentication was brought forward after P5C.2. P5C.3 moved dashboard, campaign, and keyword requests onto that client. P5C.4 moved goals, annotations, and bid experiments.
 

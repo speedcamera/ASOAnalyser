@@ -20,7 +20,7 @@ const { requireAuthenticatedUser } = require('./auth/middleware')
 const { createAuthRouter } = require('./auth/routes')
 const { logBootstrapConfiguration } = require('./auth/organisationContext')
 const { requireAuthenticatedTenant } = require('./auth/tenantMiddleware')
-const { initDb } = require('./db')
+const { assertSchemaReady } = require('./db')
 const { registerImportRoutes } = require('./importRoutes')
 const { registerAnalyticsRoutes } = require('./analyticsRoutes')
 const { registerFeatureRoutes } = require('./featureRoutes')
@@ -64,14 +64,25 @@ app.use(errorHandler)
 
 if (require.main === module) {
   logBootstrapConfiguration()
-  initDb()
+  const productionBind = process.env.NODE_ENV === 'production'
+  assertSchemaReady()
     .then(() => {
-      app.listen(PORT, () => {
-        console.log(`Server running on http://localhost:${PORT}`)
-      })
+      const onListening = () => {
+        const hostLabel = productionBind ? '127.0.0.1' : 'localhost'
+        console.log(`Server running on http://${hostLabel}:${PORT}`)
+      }
+      if (productionBind) {
+        app.listen(PORT, '127.0.0.1', onListening)
+      } else {
+        app.listen(PORT, onListening)
+      }
     })
     .catch((err) => {
-      console.error('Failed to initialize database', err && err.code ? err.code : '')
+      if (err && err.code === 'SCHEMA_NOT_READY') {
+        console.error(err.message)
+      } else {
+        console.error('Failed to start server', err && err.code ? err.code : '')
+      }
       process.exit(1)
     })
 }

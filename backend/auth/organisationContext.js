@@ -11,7 +11,8 @@ const OWNER_ROLE = 'owner'
  * Any other authenticated user with no membership receives one new
  * organisation and one owner membership. There is no email allowlist.
  * The configured bootstrap identity may join the existing Development
- * Organisation. Resolution does not fall back to that organisation for anyone else.
+ * Organisation only when NODE_ENV is not production. Resolution does not
+ * create that organisation and does not fall back to it for anyone else.
  * This module does not read Clerk sessions and does not fall back to the
  * Development Organisation when resolution fails.
  *
@@ -41,7 +42,12 @@ function bootstrapClerkUserId(env = process.env) {
   return trimmed.length > 0 ? trimmed : null
 }
 
+function isProductionEnv(env = process.env) {
+  return env.NODE_ENV === 'production'
+}
+
 function isDevelopmentBootstrapUser(user, env = process.env) {
+  if (isProductionEnv(env)) return false
   const configured = bootstrapClerkUserId(env)
   if (!configured || !user) return false
   return user.authProvider === 'clerk' && user.authProviderUserId === configured
@@ -281,6 +287,13 @@ function createRequireOrganisationContext(deps = {}) {
 }
 
 function logBootstrapConfiguration(env = process.env) {
+  if (isProductionEnv(env) && bootstrapClerkUserId(env)) {
+    console.warn(
+      `Warning: ${BOOTSTRAP_CLERK_USER_ID_ENV} is set while NODE_ENV=production. ` +
+        'Development Organisation bootstrap is disabled and will not run.'
+    )
+    return
+  }
   if (bootstrapClerkUserId(env)) {
     console.log('Development Organisation bootstrap identity is configured')
     return

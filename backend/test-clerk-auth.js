@@ -153,7 +153,7 @@ async function main() {
       assert.strictEqual(res.status, 401)
     })
 
-    await testAsync('J. existing app still serves health and apps without a session', async () => {
+    await testAsync('J. health stays public and apps require a session', async () => {
       const before = await counts()
       const beforeUsers = await pool.query('SELECT COUNT(*)::int AS n FROM users')
       const health = await request(server, '/api/health')
@@ -162,8 +162,7 @@ async function main() {
       const afterUsers = await pool.query('SELECT COUNT(*)::int AS n FROM users')
       assert.strictEqual(health.status, 200)
       assert.deepStrictEqual(health.body, { ok: true })
-      assert.strictEqual(apps.status, 200)
-      assert.ok(Array.isArray(apps.body))
+      assert.strictEqual(apps.status, 401)
       assert.deepStrictEqual(before, after)
       assert.strictEqual(beforeUsers.rows[0].n, afterUsers.rows[0].n)
     })
