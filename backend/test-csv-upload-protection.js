@@ -261,6 +261,16 @@ async function main() {
     assert.strictEqual(defaults.windowMinutes, 15)
   })
 
+  test('a hostile column name does not pollute object prototypes', () => {
+    const before = Object.prototype.polluted
+    const parsed = parseCsv(
+      Buffer.from(['Date,Campaign Name,__proto__', '2097-01-01,Safe,polluted'].join('\n')),
+    )
+    assert.strictEqual(Object.prototype.polluted, before)
+    assert.strictEqual(Object.prototype.hasOwnProperty.call(parsed.records[0], 'polluted'), false)
+    assert.ok(Object.keys(parsed.records[0]).includes('__proto__'))
+  })
+
   test('parsing stops when the row limit is exceeded', () => {
     const csv = [
       'Date,Campaign Name',
