@@ -23,7 +23,7 @@ function SessionBridge({ children }) {
   const auth = useAuth()
 
   if (canLoadApplication(auth)) {
-    setAuthTokenGetter(() => auth.getToken())
+    setAuthTokenGetter((options) => auth.getToken(options))
   }
 
   useEffect(() => {
