@@ -21,6 +21,10 @@ import {
   percentChange,
 } from '../utils/dashboardHelpers'
 
+export function hasWeeklyPerformanceRange(dateRange) {
+  return Boolean(dateRange?.startDate) && Boolean(dateRange?.endDate)
+}
+
 export default function Dashboard() {
   const navigate = useNavigate()
   const {
@@ -123,7 +127,7 @@ export default function Dashboard() {
         importsStatus !== 'ready' ||
         imports.length === 0 ||
         filterPreset === 'ALL' ||
-        (filterPreset === 'CUSTOM' && !dateRange.startDate)
+        !hasWeeklyPerformanceRange(dateRange)
       ) {
         setWeeklyData(null)
         setPreviousWeeklyData(null)
@@ -138,8 +142,8 @@ export default function Dashboard() {
 
       try {
         const currentPromise = fetchCampaignWeeklyPerformance({
-          startDate: dateRange.startDate || undefined,
-          endDate: dateRange.endDate || undefined,
+          startDate: dateRange.startDate,
+          endDate: dateRange.endDate,
           ...chartAppParams,
         })
 
