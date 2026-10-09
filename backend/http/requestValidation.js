@@ -9,6 +9,7 @@
 const { httpError } = require('./clientError')
 
 const MAX_ANALYTICS_DAYS = 90
+const MAX_ORGANISATION_NAME = 200
 const MAX_NOTE_TEXT = 2000
 const MAX_ENTITY_KEY = 500
 const MAX_FILTER_TEXT = 300
@@ -124,6 +125,15 @@ function readFilterText(value, name, max = MAX_FILTER_TEXT, { blank = 'omit' } =
   return text
 }
 
+function parseOrganisationName(value) {
+  // organisations.organisation_name is TEXT NOT NULL and has no length constraint.
+  if (typeof value !== 'string') invalid('Organisation name must be text')
+  const name = value.trim()
+  if (!name) invalid('Organisation name is required')
+  if (name.length > MAX_ORGANISATION_NAME) invalid('Organisation name is too long')
+  return name
+}
+
 function parseGoalThreshold(value) {
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > MAX_GOAL_THRESHOLD) {
     invalid('Threshold must be a non-negative number')
@@ -133,6 +143,7 @@ function parseGoalThreshold(value) {
 
 module.exports = {
   MAX_ANALYTICS_DAYS,
+  MAX_ORGANISATION_NAME,
   MAX_ENTITY_KEY,
   MAX_FILTER_TEXT,
   MAX_GOAL_THRESHOLD,
@@ -143,6 +154,7 @@ module.exports = {
   parseBoundedInteger,
   parseCalendarDate,
   parseGoalThreshold,
+  parseOrganisationName,
   parseResourceId,
   readAnalyticsQuery,
   readFilterText,

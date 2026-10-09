@@ -1,4 +1,7 @@
 const express = require('express')
+const { httpError, sendRouteError } = require('../http/clientError')
+const { parseOrganisationName } = require('../http/requestValidation')
+const { renameOrganisation } = require('./organisationName')
 
 function createAuthRouter({
   requireAuthenticatedUser,
@@ -46,6 +49,25 @@ function createAuthRouter({
           role: organisation.role,
         },
       })
+    })
+
+    router.patch('/organisation', ...tenantChain, async (req, res) => {
+      try {
+        if (!req.organisation || req.organisation.role !== 'owner') {
+          throw httpError(403, 'You do not have access to this')
+        }
+        const name = parseOrganisationName(req.body && req.body.name)
+        const updated = await renameOrganisation(req.organisationId, name)
+        res.json({
+          organisation: {
+            id: updated.id,
+            name: updated.name,
+            role: req.organisation.role,
+          },
+        })
+      } catch (err) {
+        sendRouteError(req, res, err)
+      }
     })
   }
 

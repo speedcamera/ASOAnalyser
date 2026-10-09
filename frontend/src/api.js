@@ -5,6 +5,15 @@ export async function fetchAuthContext() {
   return readApiJson(res, 'Organisation could not be loaded')
 }
 
+export async function updateOrganisationName(name) {
+  const res = await apiFetch('/api/auth/organisation', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  })
+  return readApiJson(res, 'Organisation name could not be saved')
+}
+
 function request(path, options, fallback) {
   return apiFetch(path, options).then((res) => readApiJson(res, fallback))
 }

@@ -2,10 +2,14 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { fetchAuthContext } from '../api'
+import { fetchAuthContext, updateOrganisationName } from '../api'
 import { clearAuthTokenGetter, setAuthTokenGetter } from '../auth/apiClient'
 import App from '../App'
-import { OrganisationOverview, readOrganisationOverview } from './Organisation'
+import {
+  OrganisationOverview,
+  applyOrganisationRename,
+  readOrganisationOverview,
+} from './Organisation'
 
 vi.mock('../components/Layout', async () => {
   const { Outlet } = await import('react-router-dom')
@@ -54,6 +58,7 @@ describe('Organisation overview', () => {
     expect(html).toContain('Owner')
     expect(html).toContain('ada@example.com')
     expect(html).toContain('Your membership')
+    expect(html).toContain('Edit name')
     expect(html).not.toContain('>14<')
     expect(html).not.toContain('>42<')
     expect(html).not.toContain('only member')
@@ -119,5 +124,124 @@ describe('Organisation overview', () => {
 
     expect(html).toContain('Loading organisation…')
     expect(html).toContain('Organisation')
+  })
+
+  it('shows Edit name only for an owner, and Save and Cancel while editing', () => {
+    const owner = readOrganisationOverview(contextBody)
+    const admin = { ...owner, role: 'admin' }
+    const analyst = { ...owner, role: 'analyst' }
+    const ownerHtml = renderToStaticMarkup(
+      createElement(OrganisationOverview, { status: 'ready', overview: owner, error: '' }),
+    )
+    const adminHtml = renderToStaticMarkup(
+      createElement(OrganisationOverview, { status: 'ready', overview: admin, error: '' }),
+    )
+    const analystHtml = renderToStaticMarkup(
+      createElement(OrganisationOverview, { status: 'ready', overview: analyst, error: '' }),
+    )
+    const editingHtml = renderToStaticMarkup(
+      createElement(OrganisationOverview, {
+        status: 'ready',
+        overview: owner,
+        error: '',
+        editing: true,
+        draftName: 'Northwind',
+      }),
+    )
+
+    expect(ownerHtml).toContain('Edit name')
+    expect(adminHtml).not.toContain('Edit name')
+    expect(analystHtml).not.toContain('Edit name')
+    expect(editingHtml).toContain('Save')
+    expect(editingHtml).toContain('Cancel')
+    expect(editingHtml).toContain('value="Northwind"')
+    expect(editingHtml).not.toContain('Edit name')
+  })
+
+  it('shows a saved confirmation and an API error on the form', () => {
+    const overview = readOrganisationOverview(contextBody)
+    const saved = renderToStaticMarkup(
+      createElement(OrganisationOverview, {
+        status: 'ready',
+        overview: { ...overview, name: 'Renamed' },
+        error: '',
+        saveMessage: 'Organisation name saved.',
+      }),
+    )
+    const failed = renderToStaticMarkup(
+      createElement(OrganisationOverview, {
+        status: 'ready',
+        overview,
+        error: '',
+        editing: true,
+        draftName: 'Renamed',
+        saveError: 'Organisation name is required',
+      }),
+    )
+
+    expect(saved).toContain('Renamed')
+    expect(saved).toContain('Organisation name saved.')
+    expect(failed).toContain('Organisation name is required')
+    expect(failed).toContain('Save')
+    expect(failed).toContain('Cancel')
+  })
+
+  it('saves the name through the authenticated client and refreshes context', async () => {
+    setAuthTokenGetter(async () => 'session-token')
+    const savedBody = {
+      organisation: { id: 14, name: 'Renamed', role: 'owner' },
+    }
+    const refreshed = {
+      ...contextBody,
+      organisation: { ...contextBody.organisation, name: 'Renamed' },
+    }
+    const fetchMock = vi.fn(async (url) => {
+      if (url === '/api/auth/organisation') return jsonResponse(savedBody)
+      return jsonResponse(refreshed)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await applyOrganisationRename('  Renamed  ')
+
+    expect(result.overview).toEqual({
+      name: 'Renamed',
+      role: 'owner',
+      email: 'ada@example.com',
+    })
+    const [patchUrl, patchOptions] = fetchMock.mock.calls[0]
+    const headers = new Headers(patchOptions.headers)
+    expect(patchUrl).toBe('/api/auth/organisation')
+    expect(patchOptions.method).toBe('PATCH')
+    expect(JSON.parse(patchOptions.body)).toEqual({ name: '  Renamed  ' })
+    expect(headers.get('Authorization')).toBe('Bearer session-token')
+    expect(headers.get('x-organisation-id')).toBeNull()
+    expect(String(patchUrl)).not.toContain('organisationId')
+    expect(fetchMock.mock.calls[1][0]).toBe('/api/auth/context')
+  })
+
+  it('reports validation, permission, and network failures without renaming locally', async () => {
+    setAuthTokenGetter(async () => 'session-token')
+    const validation = vi.fn(async () =>
+      jsonResponse({ error: 'Organisation name is required' }, 400),
+    )
+    vi.stubGlobal('fetch', validation)
+    await expect(updateOrganisationName('   ')).rejects.toMatchObject({
+      message: 'Organisation name is required',
+      status: 400,
+    })
+
+    const forbidden = vi.fn(async () =>
+      jsonResponse({ error: 'You do not have access to this' }, 403),
+    )
+    vi.stubGlobal('fetch', forbidden)
+    await expect(updateOrganisationName('Renamed')).rejects.toMatchObject({
+      message: 'You do not have access to this',
+      status: 403,
+    })
+
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      throw new TypeError('Failed to fetch')
+    }))
+    await expect(updateOrganisationName('Renamed')).rejects.toThrow('Failed to fetch')
   })
 })

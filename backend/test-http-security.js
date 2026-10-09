@@ -199,6 +199,12 @@ async function main() {
     assert.strictEqual(result.body.error, 'Invalid metric. Must be one of: spend, installs')
   })
 
+  test('permission errors stay 403', () => {
+    const result = publicError(httpError(403, 'You do not have access to this'))
+    assert.strictEqual(result.status, 403)
+    assert.strictEqual(result.body.error, 'You do not have access to this')
+  })
+
   test('not-found errors stay 404', () => {
     const result = publicError(httpError(404, 'Campaign not found'))
     assert.strictEqual(result.status, 404)

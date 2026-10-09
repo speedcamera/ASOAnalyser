@@ -8,7 +8,7 @@
  */
 
 const GENERIC_SERVER_ERROR = 'The server could not complete this request'
-const CLIENT_STATUSES = new Set([400, 401, 404, 413, 429])
+const CLIENT_STATUSES = new Set([400, 401, 403, 404, 413, 429])
 
 function httpError(status, message) {
   const err = new Error(message)

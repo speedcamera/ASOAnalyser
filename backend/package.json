@@ -20,6 +20,7 @@
     "test:bid-resolution": "node test-bid-resolution.js",
     "test:auth": "node test-clerk-auth.js",
     "test:organisation": "node test-organisation-context.js",
+    "test:organisation-rename": "node test-organisation-rename.js",
     "test:tenant": "node test-tenant-middleware.js",
     "test:imports": "node test-import-tenant.js",
     "test:analytics-tenant": "node test-analytics-tenant.js",
