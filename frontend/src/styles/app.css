@@ -1062,6 +1062,39 @@ html {
   color: var(--text);
 }
 
+.organisation-overview {
+  display: grid;
+  gap: 0.85rem;
+  margin: 1rem 0 0;
+}
+
+.organisation-overview__item {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.organisation-overview dt {
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.organisation-overview dd {
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+@media (min-width: 640px) {
+  .organisation-overview {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 1rem;
+  }
+}
+
 .panel-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;

@@ -4,6 +4,7 @@ import Campaigns from './pages/Campaigns'
 import Dashboard from './pages/Dashboard'
 import History from './pages/History'
 import Keywords from './pages/Keywords'
+import Organisation from './pages/Organisation'
 import Profile from './pages/Profile'
 
 export default function App() {
@@ -16,6 +17,7 @@ export default function App() {
         <Route path="history" element={<History />} />
         <Route path="imports" element={<Navigate to="/history" replace />} />
         <Route path="profile" element={<Profile />} />
+        <Route path="organisation" element={<Organisation />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

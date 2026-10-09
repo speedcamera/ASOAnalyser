@@ -84,9 +84,10 @@ describe('account menu', () => {
 
     expect(html).toContain('href="/profile"')
     expect(html).toContain('My Profile')
+    expect(html).toContain('href="/organisation"')
+    expect(html).toContain('Organisation')
     expect(html).toContain('data-sign-out="true"')
     expect(html).toContain('Sign out')
-    expect(html).not.toContain('Organisation')
     expect(html).not.toContain('Billing')
   })
 

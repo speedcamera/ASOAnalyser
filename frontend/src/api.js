@@ -1,5 +1,10 @@
 import { apiFetch, readApiJson } from './auth/apiClient'
 
+export async function fetchAuthContext() {
+  const res = await apiFetch('/api/auth/context')
+  return readApiJson(res, 'Organisation could not be loaded')
+}
+
 function request(path, options, fallback) {
   return apiFetch(path, options).then((res) => readApiJson(res, fallback))
 }

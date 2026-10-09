@@ -71,6 +71,15 @@ export function AccountMenuPanel({ onClose }) {
       >
         My Profile
       </NavLink>
+      <NavLink
+        to="/organisation"
+        className={({ isActive }) =>
+          `account-menu__item${isActive ? ' account-menu__item--active' : ''}`
+        }
+        onClick={onClose}
+      >
+        Organisation
+      </NavLink>
       <SignOutButton>
         <button type="button" className="account-menu__item" onClick={onClose}>
           Sign out
